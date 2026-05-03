@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - 'packages/*.deb'
+      - 'packages/**/*.deb'
 
 jobs:
   update-repo:
@@ -19,7 +19,6 @@ jobs:
       - name: Import GPG key and setup gpg
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           echo "$GPG_PRIVATE_KEY" | gpg --import --batch
           echo "allow-preset-passphrase" > ~/.gnupg/gpg-agent.conf
@@ -29,16 +28,24 @@ jobs:
 
       - name: Generate Packages and Release files
         env:
-          GPG_TTY: $(tty)
           GNUPGHOME: /home/runner/.gnupg
           GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           USER: ${{github.repository_owner}}
           REPO: ${{github.event.repository.name}}
         run: |
-          mkdir -p public/dists/stable/main/binary-arm64
-          dpkg-scanpackages --arch arm64 packages > public/dists/stable/main/binary-arm64/Packages
-          gzip -k -f public/dists/stable/main/binary-arm64/Packages
+          COMPONENTS=""
+          
+          for dir in packages/*/; do
+            COMP=$(basename "$dir")
+            COMPONENTS="$COMPONENTS $COMP"
+            
+            echo "Generating index for component: $COMP"
+            mkdir -p public/dists/stable/$COMP/binary-arm64
+            
+            dpkg-scanpackages --arch arm64 "$dir" > public/dists/stable/$COMP/binary-arm64/Packages
+            gzip -k -f public/dists/stable/$COMP/binary-arm64/Packages
+          done
           
           cd public/dists/stable
           
@@ -49,8 +56,8 @@ jobs:
           Codename: stable
           Version: 1.0
           Architectures: arm64
-          Components: main
-          Description: Packages 
+          Components:$COMPONENTS
+          Description: Modular APT repository for SDM845 devices
           EOF
           
           apt-ftparchive release . >> Release
